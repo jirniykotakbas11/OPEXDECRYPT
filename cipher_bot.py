@@ -19,6 +19,7 @@ Telegram-бот "Орех" — шифрует и расшифровывает т
 import os
 import re
 import logging
+import asyncio
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
@@ -131,9 +132,12 @@ def main():
 
     if base_url:
         port = int(os.environ.get("PORT", "10000"))
-        url_path = token  # используем токен как секретную часть пути
+        url_path = token
         full_webhook_url = f"{base_url.rstrip('/')}/{url_path}"
         print(f"Бот запущен через webhook: {full_webhook_url}")
+
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
         app.run_webhook(
             listen="0.0.0.0",
             port=port,
