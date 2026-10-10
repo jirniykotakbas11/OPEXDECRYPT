@@ -14,6 +14,11 @@ Telegram-бот "Орех" — шифрует и расшифровывает т
     /alphabet         — показать таблицу шифра
     Просто текст без команды бот попробует расшифровать автоматически,
     если найдёт символы шифра, иначе — зашифрует.
+
+Инлайн-режим (в любом чате, даже где бота нет):
+    @имя_бота привет  — появится меню «Шифровать | Расшифровать»,
+    выбери пункт — в чат уйдёт готовый результат.
+    (Включить: @BotFather -> /setinline)
 """
 
 import os
@@ -21,8 +26,22 @@ import re
 import logging
 import asyncio
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from uuid import uuid4
+
+from telegram import (
+    InlineQueryResultArticle,
+    InlineQueryResultsButton,
+    InputTextMessageContent,
+    Update,
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    InlineQueryHandler,
+    MessageHandler,
+    filters,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -77,7 +96,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/encode <текст> — зашифровать\n"
         "/decode <текст> — расшифровать\n"
         "/alphabet — показать таблицу шифра\n\n"
-        "Можно просто прислать текст без команды — определю сам."
+        "Можно просто прислать текст без команды — определю сам.\n\n"
+        "Инлайн: в любом чате напиши @OpexDecryptBot и текст — выбери «Шифровать» или «Расшифровать»."
     )
 
 
@@ -112,6 +132,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(encode(text))
 
 
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = (update.inline_query.query or "").strip()
+
+    if not query:
+        # Пустой запрос — подсказка и кнопка перехода в бота.
+        await update.inline_query.answer(
+            [],
+            cache_time=0,
+            button=InlineQueryResultsButton(
+                text="Введи текст после @имени бота", start_parameter="inline"
+            ),
+        )
+        return
+
+    # Лимит Telegram на длину сообщения — 4096 символов.
+    encoded = encode(query)[:4096]
+    decoded = decode(query)[:4096]
+
+    enc_result = InlineQueryResultArticle(
+        id=str(uuid4()),
+        title="🔒 Шифровать",
+        description=encoded[:100],
+        input_message_content=InputTextMessageContent(encoded),
+    )
+    dec_result = InlineQueryResultArticle(
+        id=str(uuid4()),
+        title="🔓 Расшифровать",
+        description=decoded[:100],
+        input_message_content=InputTextMessageContent(decoded),
+    )
+
+    # Если в тексте уже есть символы шифра — «Расшифровать» ставим первым.
+    results = [dec_result, enc_result] if looks_encoded(query) else [enc_result, dec_result]
+    await update.inline_query.answer(results, cache_time=0, is_personal=False)
+
+
 def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
@@ -124,6 +180,7 @@ def main():
     app.add_handler(CommandHandler("decode", cmd_decode))
     app.add_handler(CommandHandler("alphabet", cmd_alphabet))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(InlineQueryHandler(inline_query))
 
     # Render Web Service автоматически задаёт RENDER_EXTERNAL_URL и PORT.
     # Если эта переменная есть — запускаемся через webhook (для хостинга).
